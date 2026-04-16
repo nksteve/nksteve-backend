@@ -6,7 +6,10 @@ const { callProc, query } = require('../db/pool');
 router.get('/getEntitySetup/:id', auth, async (req, res) => {
   try {
     const rows = await callProc('call getEntitySetup(?)', [req.params.id]);
-    res.json({ entity: decryptRow(rows[0]?.[0]) || null });
+    // SP may return multiple result sets; entity row is always in rows[0][0]
+    const raw = Array.isArray(rows[0]) ? rows[0][0] : rows[0];
+    const entity = decryptRow(raw) || null;
+    res.json({ entity });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
