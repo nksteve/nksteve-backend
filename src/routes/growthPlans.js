@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc, query } = require('../db/pool');
+const { decryptRows, decryptRow } = require('../helpers/decrypt');
 
 // ─── getCommunityGrowthPlanDetail SP signature ───────────────────────────────
 // call getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
@@ -107,7 +108,22 @@ router.post('/getMyPlans', auth, async (req, res) => {
   const eid = entityId || req.user?.entityId;
   try {
     const rows = await callProc('call getGrowthPlanSummary(?)', [eid]);
-    const plans = rows[0] || [];
+    const raw = decryptRows(rows[0] || []);
+    // Map SP field names to match vembu model (gp.name = resultSet.growthPlanName etc.)
+    const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed', 5: 'Deleted' };
+    const plans = raw.map(r => ({
+      ...r,
+      name:                    r.growthPlanName || r.name || '',
+      milestoneDate:           r.growthPlanMilestoneDate || r.milestoneDate || '',
+      growthPlanPercentAchieved: r.growthPlanPercentAchieved || 0,
+      colorCodeHex:            r.colorCodeHex || null,
+      status:                  statusMap[r.statusId] || 'Open',
+      statusLabel:             statusMap[r.statusId] || 'Open',
+      firstName:               r.firstName || '',
+      lastName:                r.lastName  || '',
+      growthPlanId:            r.growthPlanId,
+      isDeleted:               r.statusId === 5,
+    }));
     res.json({ plans, myPlans: plans });
   } catch (e) {
     res.status(500).json({ error: e.message });

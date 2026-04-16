@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const jwt = require('jsonwebtoken');
 const { query, callProc } = require('../db/pool');
+const { decryptRow } = require('../helpers/decrypt');
 
 router.post('/login', async (req, res) => {
   const { email, password, companyId } = req.body;
@@ -17,7 +18,7 @@ router.post('/login', async (req, res) => {
     let entity = {};
     try {
       const entityRows = await callProc('call getEntityHeader(?,null,null)', [email]);
-      entity = Array.isArray(entityRows[0]) ? entityRows[0][0] : entityRows[0] || {};
+      entity = decryptRow(Array.isArray(entityRows[0]) ? entityRows[0][0] : entityRows[0] || {});
     } catch (e) {
       entity = loginResult;
     }

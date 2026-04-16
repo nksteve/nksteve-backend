@@ -1,3 +1,4 @@
+const { decryptRows, decryptRow } = require('../helpers/decrypt');
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc, query } = require('../db/pool');

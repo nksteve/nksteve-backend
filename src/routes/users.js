@@ -1,3 +1,4 @@
+const { decryptRows, decryptRow } = require('../helpers/decrypt');
 const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc, query } = require('../db/pool');
@@ -5,7 +6,7 @@ const { callProc, query } = require('../db/pool');
 router.get('/getEntitySetup/:id', auth, async (req, res) => {
   try {
     const rows = await callProc('call getEntitySetup(?)', [req.params.id]);
-    res.json({ entity: rows[0]?.[0] || null });
+    res.json({ entity: decryptRow(rows[0]?.[0]) || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -33,7 +34,7 @@ router.get('/getEntityInterests/:id', auth, async (req, res) => {
 router.get('/getEntityPersonal/:id', auth, async (req, res) => {
   try {
     const rows = await callProc('call getEntityHeader(?,null,null)', [req.params.id]);
-    res.json({ personal: rows[0]?.[0] || null });
+    res.json({ personal: decryptRow(rows[0]?.[0]) || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -90,7 +91,7 @@ router.post('/getAdminUsers', auth, async (req, res) => {
   const { companyId } = req.body;
   try {
     const rows = await callProc('call getAdminUsers(?)', [companyId]);
-    const users = rows[0] || [];
+    const users = decryptRows(rows[0] || []);
     // Enrich with plain-text email from entity_user
     const enriched = await Promise.all(users.map(async u => {
       try {
