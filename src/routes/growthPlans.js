@@ -1,13 +1,16 @@
 const router = require('express').Router();
 const auth = require('../middleware/auth');
-const { callProc } = require('../db/pool');
+const { callProc, query } = require('../db/pool');
+
+// ─── getCommunityGrowthPlanDetail SP signature ───────────────────────────────
+// call getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
 
 // Get growth plan summary / details
 router.post('/growth-plan-details', auth, async (req, res) => {
   const { action, entityId, growthPlanId, statusId, childPlanId, companyId } = req.body;
   try {
     let rows;
-    if (action === 'MyGrowthPlans' || action === 'CompletedPlans') {
+    if (action === 'MyGrowthPlans' || action === 'CompletedPlans' || action === 'MyCompletedGoalPlans') {
       rows = await callProc('call getGrowthPlanSummary(?)', [entityId]);
       const plans = rows[0] || [];
       return res.json({ plans, myPlans: plans });
@@ -16,14 +19,97 @@ router.post('/growth-plan-details', auth, async (req, res) => {
       return res.json({ plans: rows[0] || [] });
     } else {
       // Detail for a specific plan
+      // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
+      // Always use 'MyGrowthPlans' — SP only recognises a fixed set of actions
+      const _action = 'MyGrowthPlans';
+      const _statusId = statusId || 2;
       rows = await callProc('call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)', [
-        growthPlanId || null, entityId, statusId || null, childPlanId || null,
-        companyId || null, null, null
+        _action, entityId, growthPlanId || null, _statusId, null, null, companyId || null
       ]);
-      return res.json({ growthPlan: rows[0] || [], goals: rows[1] || [], actions: rows[2] || [] });
+      const flatRows = rows[0] || [];
+
+      // Map statusId to label
+      const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed' };
+
+      // Extract plan header from first row
+      const planHeader = flatRows.length > 0 ? {
+        growthPlanId: flatRows[0].growthPlanId,
+        growthPlanName: flatRows[0].growthPlanName,
+        growthPlanComments: flatRows[0].growthPlanComments,
+        growthPlanMilestoneDate: flatRows[0].growthPlanMilestoneDate,
+        growthPlanPercentAchieved: flatRows[0].growthPlanPercentAchieved,
+        growthPlanStatus: statusMap[flatRows[0].statusId] || 'Open',
+        statusId: flatRows[0].statusId,
+        wizzardStage: flatRows[0].wizzardStage,
+        sessionTimeBank: flatRows[0].sessionTimeBank,
+        sessionScope: flatRows[0].sessionScope,
+        sessionDurationMin: flatRows[0].sessionDurationMin,
+        CGP_status: flatRows[0].CGP_status,
+        videoYN: flatRows[0].videoYN,
+        videoLink: flatRows[0].videoLink,
+        colorCodeHex: flatRows[0].colorCodeHex,
+        pendingMeetings: flatRows[0].pendingMeetings,
+        entityId: flatRows[0].entityId,
+        firstName: flatRows[0].firstName,
+        lastName: flatRows[0].lastName,
+        createdDate: flatRows[0].createdDate,
+        completedOn: flatRows[0].completedOn,
+      } : {};
+
+      // Extract unique goals
+      const goalsMap = new Map();
+      flatRows.forEach(row => {
+        if (row.goalTagId && !goalsMap.has(row.goalTagId)) {
+          goalsMap.set(row.goalTagId, {
+            goalId: row.goalTagId,
+            goalTagId: row.goalTagId,
+            goalName: row.goalName,
+            goalObjectives: row.goalObjectives,
+            goalPercentAchieved: row.goalPercentAchieved,
+            goalMilestoneDate: row.goalMilestoneDate,
+            goalStatus: statusMap[row.goalStatusId] || 'Open',
+            category: row.categoryName || null,
+          });
+        }
+      });
+
+      // Extract unique actions per goal
+      const actionsMap = new Map();
+      flatRows.forEach(row => {
+        if (row.actionTagId && !actionsMap.has(row.actionTagId)) {
+          actionsMap.set(row.actionTagId, {
+            actionId: row.actionTagId,
+            actionTagId: row.actionTagId,
+            goalId: row.goalTagId,
+            actionName: row.actionName,
+            actionStatus: statusMap[row.actionStatusId] || 'Open',
+            actionGoalPercentAchieve: row.actionGoalPercentAchieve,
+          });
+        }
+      });
+
+      return res.json({
+        growthPlan: planHeader,
+        goals: Array.from(goalsMap.values()),
+        actions: Array.from(actionsMap.values()),
+        rawRows: flatRows.length, // for debug
+      });
     }
   } catch (e) {
-    console.error(e);
+    console.error('growth-plan-details error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Dashboard plans endpoint
+router.post('/getMyPlans', auth, async (req, res) => {
+  const { entityId } = req.body;
+  const eid = entityId || req.user?.entityId;
+  try {
+    const rows = await callProc('call getGrowthPlanSummary(?)', [eid]);
+    const plans = rows[0] || [];
+    res.json({ plans, myPlans: plans });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
@@ -129,12 +215,26 @@ router.post('/updateActionsOrder', auth, async (req, res) => {
   }
 });
 
-// Notes
+// Notes (GET and UPDATE)
 router.post('/cgp-notes', auth, async (req, res) => {
   const { action, growthPlanId, entityId, notes, notesId } = req.body;
   try {
+    if (action === 'UPDATE' || action === 'INSERT') {
+      await callProc('call CGP_updateNotes(?,?,?,?)', [growthPlanId, entityId, notes || null, notesId || null]);
+    }
     const rows = await callProc('call CGP_getNotes(?,?)', [growthPlanId, entityId]);
     res.json({ notes: rows[0] || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get contributors
+router.post('/cgp_getAllContributors', auth, async (req, res) => {
+  const { action, entityId, companyId, growthPlanId } = req.body;
+  try {
+    const rows = await callProc('call cgp_getAllContributors(?,?,?)', [entityId, companyId, growthPlanId || null]);
+    res.json({ contributors: rows[0] || [], result: rows[0] || [] });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
