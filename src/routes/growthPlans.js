@@ -8,7 +8,10 @@ const { decryptRows, decryptRow } = require('../helpers/decrypt');
 
 // Get growth plan summary / details
 router.post('/growth-plan-details', auth, async (req, res) => {
-  const { action, entityId, growthPlanId, statusId, childPlanId, companyId } = req.body;
+  const { action, growthPlanId, statusId, childPlanId } = req.body;
+  // Fall back to JWT claims if not provided in body
+  const entityId  = req.body.entityId  || req.user?.entityId;
+  const companyId = req.body.companyId || req.user?.companyId;
   try {
     let rows;
     if (action === 'MyGrowthPlans' || action === 'CompletedPlans' || action === 'MyCompletedGoalPlans') {
@@ -19,82 +22,138 @@ router.post('/growth-plan-details', auth, async (req, res) => {
       rows = await callProc('call getGrowthPlanSummary(?)', [entityId]);
       return res.json({ plans: rows[0] || [] });
     } else {
-      // Detail for a specific plan
-      // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
-      // Always use 'MyGrowthPlans' — SP only recognises a fixed set of actions
-      const _action = 'MyGrowthPlans';
-      const _statusId = statusId || 2;
-      rows = await callProc('call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)', [
-        _action, entityId, growthPlanId || null, _statusId, null, null, companyId || null
-      ]);
-      const flatRows = rows[0] || [];
+      // Detail for a specific plan — query view directly (SP filters by ownership and misses shared plans)
+      const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed', 5: 'Deleted' };
+      const { decryptRow } = require('../helpers/decrypt');
 
-      // Map statusId to label
-      const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed' };
+      // 1. Get plan header from gp_growthplan + color
+      // Note: gp_growthplan has no entityId — ownership is tracked via cgp_contributors
+      const planRows = await query(
+        `SELECT g.*, CONCAT('#', c.hex) AS colorCodeHex FROM gp_growthplan g
+         LEFT JOIN att_colorcodes c ON g.colorCode = c.colorCodeId
+         WHERE g.growthPlanId = ?`,
+        [growthPlanId]
+      );
+      const gp = planRows[0];
+      if (!gp) return res.json({ growthPlan: {}, goals: [], actions: [] });
 
-      // Extract plan header from first row
-      const planHeader = flatRows.length > 0 ? {
-        growthPlanId: flatRows[0].growthPlanId,
-        growthPlanName: flatRows[0].growthPlanName,
-        growthPlanComments: flatRows[0].growthPlanComments,
-        growthPlanMilestoneDate: flatRows[0].growthPlanMilestoneDate,
-        growthPlanPercentAchieved: flatRows[0].growthPlanPercentAchieved,
-        growthPlanStatus: statusMap[flatRows[0].statusId] || 'Open',
-        statusId: flatRows[0].statusId,
-        wizzardStage: flatRows[0].wizzardStage,
-        sessionTimeBank: flatRows[0].sessionTimeBank,
-        sessionScope: flatRows[0].sessionScope,
-        sessionDurationMin: flatRows[0].sessionDurationMin,
-        CGP_status: flatRows[0].CGP_status,
-        videoYN: flatRows[0].videoYN,
-        videoLink: flatRows[0].videoLink,
-        colorCodeHex: flatRows[0].colorCodeHex,
-        pendingMeetings: flatRows[0].pendingMeetings,
-        entityId: flatRows[0].entityId,
-        firstName: flatRows[0].firstName,
-        lastName: flatRows[0].lastName,
-        createdDate: flatRows[0].createdDate,
-        completedOn: flatRows[0].completedOn,
-      } : {};
+      // 2. Get plan owner from cgp_contributors
+      // cgp_contributors uses cgpId (not growthPlanId) and ownerId=1 for primary owner
+      const ownerContribRows = await query(
+        `SELECT entityId FROM cgp_contributors WHERE cgpId = ? AND ownerId = 1 LIMIT 1`,
+        [growthPlanId]
+      );
+      const ownerEntityId = ownerContribRows[0]?.entityId || entityId;
 
-      // Extract unique goals
-      const goalsMap = new Map();
-      flatRows.forEach(row => {
-        if (row.goalTagId && !goalsMap.has(row.goalTagId)) {
-          goalsMap.set(row.goalTagId, {
-            goalId: row.goalTagId,
-            goalTagId: row.goalTagId,
-            goalName: row.goalName,
-            goalObjectives: row.goalObjectives,
-            goalPercentAchieved: row.goalPercentAchieved,
-            goalMilestoneDate: row.goalMilestoneDate,
-            goalStatus: statusMap[row.goalStatusId] || 'Open',
-            category: row.categoryName || null,
-          });
+      const ownerRows = await query(
+        `SELECT entityId, firstName, lastName FROM entity_user WHERE entityId = ?`,
+        [ownerEntityId]
+      );
+      const ownerRaw = ownerRows[0] || {};
+      const ownerDec = decryptRow(ownerRaw);
+
+      // Also get the requesting user's name as fallback
+      const meRows = await query(
+        `SELECT entityId, firstName, lastName FROM entity_user WHERE entityId = ?`,
+        [entityId]
+      );
+      const meDec = decryptRow(meRows[0] || {});
+
+      const ownerFirst = ownerDec.firstName || meDec.firstName || '';
+      const ownerLast  = ownerDec.lastName  || meDec.lastName  || '';
+
+      // 2b. Get computed percentAchieved from SP (it aggregates from goals/actions)
+      // The SP returns the real computed % — gp_growthplan.percentAchieved may be stale/0
+      let computedPercent = gp.percentAchieved || 0;
+      try {
+        const spRows = await callProc(
+          'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
+          ['AllPlans', entityId, null, 1, null, null, companyId]
+        );
+        const spPlan = (spRows[0] || []).find(r => r.growthPlanId == growthPlanId);
+        if (spPlan && spPlan.growthPlanPercentAchieved != null) {
+          computedPercent = spPlan.growthPlanPercentAchieved;
         }
-      });
+      } catch (e) {
+        // SP might not include this plan if entity isn't owner — use raw value
+      }
 
-      // Extract unique actions per goal
-      const actionsMap = new Map();
-      flatRows.forEach(row => {
-        if (row.actionTagId && !actionsMap.has(row.actionTagId)) {
-          actionsMap.set(row.actionTagId, {
-            actionId: row.actionTagId,
-            actionTagId: row.actionTagId,
-            goalId: row.goalTagId,
-            actionName: row.actionName,
-            actionStatus: statusMap[row.actionStatusId] || 'Open',
-            actionGoalPercentAchieve: row.actionGoalPercentAchieve,
-          });
-        }
-      });
+      const planHeader = {
+        growthPlanId:              gp.growthPlanId,
+        growthPlanName:            gp.name,
+        name:                      gp.name,
+        growthPlanComments:        gp.comments,
+        growthPlanMilestoneDate:   gp.milestoneDate,
+        milestoneDate:             gp.milestoneDate,
+        growthPlanPercentAchieved: computedPercent,
+        growthPlanStatus:          statusMap[gp.statusId] || 'Open',
+        statusId:                  gp.statusId,
+        wizzardStage:              gp.wizzardStage,
+        sessionTimeBank:           gp.sessionTimeBank,
+        sessionScope:              gp.sessionScope,
+        sessionDurationMin:        gp.sessionDurationMin,
+        CGP_status:                gp.CGP_status,
+        videoYN:                   gp.videoYN,
+        videoLink:                 gp.videoLink,
+        colorCodeHex:              gp.colorCodeHex || null,
+        entityId:                  ownerEntityId,
+        firstName:                 ownerFirst,
+        lastName:                  ownerLast,
+        ownerName:                 `${ownerFirst} ${ownerLast}`.trim(),
+        createdDate:               gp.created,
+        completedOn:               gp.completed,
+      };
 
-      return res.json({
-        growthPlan: planHeader,
-        goals: Array.from(goalsMap.values()),
-        actions: Array.from(actionsMap.values()),
-        rawRows: flatRows.length, // for debug
-      });
+      // 3. Get goals — tag_goal.tagId joins gp_goaltag.tagId, goal name is tag_goal.name
+      const goalRows = await query(
+        `SELECT gt.goalTagId, gt.milestoneDate AS goalMilestoneDate, gt.percentAchieved AS goalPercentAchieved,
+                gt.statusId AS goalStatusId, gt.objective AS goalObjectives, gt.orderBy,
+                tg.name AS goalName
+         FROM gp_goaltag gt
+         LEFT JOIN tag_goal tg ON gt.tagId = tg.tagId
+         WHERE gt.growthPlanId = ?
+         ORDER BY gt.orderBy, gt.goalTagId`,
+        [growthPlanId]
+      );
+
+      const goals = goalRows.map(r => ({
+        goalId:              r.goalTagId,
+        goalTagId:           r.goalTagId,
+        goalName:            r.goalName || '(unnamed)',
+        goalObjectives:      r.goalObjectives,
+        goalPercentAchieved: r.goalPercentAchieved || 0,
+        goalMilestoneDate:   r.goalMilestoneDate,
+        goalStatus:          statusMap[r.goalStatusId] || 'Open',
+      }));
+
+      // 4. Get actions for all goals
+      // gp_actiongoal_join uses aTagId → tag_action.tagId, action name is tag_action.name
+      const goalIds = goalRows.map(r => r.goalTagId);
+      let actions = [];
+      if (goalIds.length > 0) {
+        const placeholders = goalIds.map(() => '?').join(',');
+        const actionRows = await query(
+          `SELECT a.actionTagId, a.goalTagId, a.milestoneDate AS endDate,
+                  a.percentAchieved AS actionGoalPercentAchieve,
+                  ta.name AS actionName
+           FROM gp_actiongoal_join a
+           LEFT JOIN tag_action ta ON a.aTagId = ta.tagId
+           WHERE a.goalTagId IN (${placeholders})
+           ORDER BY a.orderBy, a.actionTagId`,
+          goalIds
+        );
+        actions = actionRows.map(r => ({
+          actionId:                r.actionTagId,
+          actionTagId:             r.actionTagId,
+          goalId:                  r.goalTagId,
+          actionName:              r.actionName || '(unnamed)',
+          actionStatus:            'Open',
+          actionGoalPercentAchieve: r.actionGoalPercentAchieve || 0,
+          endDate:                 r.endDate,
+        }));
+      }
+
+      return res.json({ growthPlan: planHeader, goals, actions });
     }
   } catch (e) {
     console.error('growth-plan-details error:', e);
