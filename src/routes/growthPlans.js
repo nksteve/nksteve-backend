@@ -2,6 +2,17 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc, query } = require('../db/pool');
 const { decryptRows, decryptRow } = require('../helpers/decrypt');
+const multer = require('multer');
+const AWS    = require('aws-sdk');
+const path   = require('path');
+
+// ─── AWS S3 config — loaded from .env ───────────────────────────────────────
+const S3_API_KEY     = process.env.S3_API_KEY;
+const S3_API_SECRET  = process.env.S3_API_SECRET;
+const S3_BUCKET      = process.env.S3_BUCKET      || 'dsdar-missionboss';
+const S3_GOAL_FOLDER = process.env.S3_GOAL_FOLDER || 'dsdar-goal-documents';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ─── getCommunityGrowthPlanDetail SP signature ───────────────────────────────
 // call getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
@@ -559,6 +570,37 @@ router.post('/updateGoalfile', auth, async (req, res) => {
     }
     res.status(400).json({ error: 'Unknown action' });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── File Upload — multer + S3 ─────────────────────────────────────────────
+router.post('/fileUpload', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+    const allowed = ['jpeg','jpg','gif','png','pdf','mp4','mkv','3gp','doc','docx','docm','pptx','xls','xlsx','xlsm'];
+    const ext = path.extname(req.file.originalname).replace('.','').toLowerCase();
+    if (!allowed.includes(ext)) return res.status(400).json({ error: 'File format not supported' });
+
+    const entityId  = req.body.entityId || req.user?.entityId || 'unknown';
+    const timestamp = Date.now();
+    const key       = `${S3_GOAL_FOLDER}/${timestamp}-${entityId}.${ext}`;
+
+    AWS.config.update({ accessKeyId: S3_API_KEY, secretAccessKey: S3_API_SECRET, region: 'us-east-1' });
+    const s3 = new AWS.S3();
+
+    const result = await s3.upload({
+      ACL:         'public-read',
+      Bucket:      S3_BUCKET,
+      Key:         key,
+      Body:        req.file.buffer,
+      ContentType: req.file.mimetype,
+    }).promise();
+
+    return res.json({ Location: result.Location, Key: result.Key });
+  } catch (e) {
+    console.error('fileUpload error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

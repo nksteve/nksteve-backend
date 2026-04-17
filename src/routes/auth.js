@@ -14,10 +14,10 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Get entity header details
+    // Get entity header details (use entityId, not email — SP expects integer)
     let entity = {};
     try {
-      const entityRows = await callProc('call getEntityHeader(?,null,null)', [email]);
+      const entityRows = await callProc('call getEntityHeader(?,null,null)', [loginResult.entityId]);
       entity = decryptRow(Array.isArray(entityRows[0]) ? entityRows[0][0] : entityRows[0] || {});
     } catch (e) {
       entity = loginResult;

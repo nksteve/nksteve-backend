@@ -11,7 +11,7 @@ const Cryptr = require('cryptr');
 
 const cryptr = new Cryptr(process.env.ENCRYPTION_KEY || 'This-is-a-security-key-for-onup-notes');
 
-const ENCRYPTED_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'address', 'city', 'alias', 'title', 'imageUri', 'myMotivation', 'whatIWant'];
+const ENCRYPTED_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'address', 'city', 'alias', 'title', 'imageUri', 'myMotivation', 'whatIWant', 'securityToken'];
 
 function decryptField(value) {
   if (!value || typeof value !== 'string' || value.trim().length === 0) return value;
