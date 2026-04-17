@@ -102,20 +102,41 @@ router.post('/growth-plan-details', auth, async (req, res) => {
   }
 });
 
-// Dashboard plans endpoint
+// Dashboard plans endpoint — mirrors vembu exactly:
+// calls getCommunityGrowthPlanDetail('AllPlans', entityId, null, 1, null, null, companyId)
+// which returns only open/active plans owned by or shared with the entity
 router.post('/getMyPlans', auth, async (req, res) => {
-  const { entityId } = req.body;
-  const eid = entityId || req.user?.entityId;
+  const { entityId, companyId, action } = req.body;
+  const eid     = entityId  || req.user?.entityId;
+  const cid     = companyId || req.user?.companyId;
+  const _action = action    || 'AllPlans';
+  // statusId mapping for tab actions
+  const statusIdMap = {
+    'AllPlans':              1,
+    'MyGrowthPlans':         1,
+    'MyCompletedGoalPlans':  2,
+    'DeleteGoalPlan':        5,
+    'InvitedGoalPlans':      1,
+  };
+  const _statusId = statusIdMap[_action] || 1;
   try {
-    const rows = await callProc('call getGrowthPlanSummary(?)', [eid]);
-    const raw = decryptRows(rows[0] || []);
-    // Map SP field names to match vembu model (gp.name = resultSet.growthPlanName etc.)
+    // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
+    const rows = await callProc(
+      'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
+      [_action, eid, null, _statusId, null, null, cid]
+    );
+    const flat = rows[0] || [];
+    const raw  = decryptRows(flat);
+
+    // De-duplicate by growthPlanId — SP returns one row per goal/action
+    const seen  = new Set();
     const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed', 5: 'Deleted' };
-    const plans = raw.map(r => {
-      // v_growthPlanSummary returns growthPlanStatusId for plan status
-      // and statusId for the user's account status — use growthPlanStatusId
-      const planStatusId = r.growthPlanStatusId || r.statusId || 1;
-      return {
+    const plans = [];
+    raw.forEach(r => {
+      if (!r.growthPlanId || seen.has(r.growthPlanId)) return;
+      seen.add(r.growthPlanId);
+      const planStatusId = r.statusId || 1;
+      plans.push({
         ...r,
         name:                      r.growthPlanName || r.name || '',
         milestoneDate:             r.growthPlanMilestoneDate || r.milestoneDate || '',
@@ -128,7 +149,7 @@ router.post('/getMyPlans', auth, async (req, res) => {
         lastName:                  r.lastName  || '',
         growthPlanId:              r.growthPlanId,
         isDeleted:                 planStatusId === 5,
-      };
+      });
     });
     res.json({ plans, myPlans: plans });
   } catch (e) {
