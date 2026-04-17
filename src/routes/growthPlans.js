@@ -524,6 +524,14 @@ router.post('/updateGoalActionNotes', auth, async (req, res) => {
       );
       return res.json({ result: rows });
     }
+    if (action === 'UPDATE') {
+      await query('UPDATE gp_notes SET notes=?, lastUpdated=NOW() WHERE notesId=? AND entityId=?', [notes, notesId, entityId]);
+      const rows = await query(
+        'SELECT * FROM gp_notes WHERE growthPlanId=? AND goalTagId<=>? AND actionTagId<=>? ORDER BY created DESC',
+        [growthPlanId, goalTagId || null, actionTagId || null]
+      );
+      return res.json({ result: rows });
+    }
     if (action === 'DELETE') {
       await query('DELETE FROM gp_notes WHERE notesId=? AND entityId=?', [notesId, entityId]);
       return res.json({ result: { deleted: true } });
