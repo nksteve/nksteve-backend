@@ -3,12 +3,18 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc, query } = require('../db/pool');
 
+/**
+ * getEntitySetup — the frontend calls this for dashboard VMV cards.
+ * The v_entitysetup view does NOT have vision/mission/values — those come from
+ * v_entityheader (via getEntityHeader SP). We call getEntityHeader here so the
+ * frontend receives vission/mission/value/companyVision/companyMission/companyValues.
+ */
 router.get('/getEntitySetup/:id', auth, async (req, res) => {
   try {
-    const rows = await callProc('call getEntitySetup(?)', [req.params.id]);
-    // SP may return multiple result sets; entity row is always in rows[0][0]
-    const raw = Array.isArray(rows[0]) ? rows[0][0] : rows[0];
-    const entity = decryptRow(raw) || null;
+    const rows = await callProc('call getEntityHeader(?,null,null)', [req.params.id]);
+    // getEntityHeader returns a single result set; first row is our entity
+    const raw = Array.isArray(rows[0]) ? rows[0][0] : (rows[0] || null);
+    const entity = raw ? decryptRow(raw) : null;
     res.json({ entity });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -37,7 +43,8 @@ router.get('/getEntityInterests/:id', auth, async (req, res) => {
 router.get('/getEntityPersonal/:id', auth, async (req, res) => {
   try {
     const rows = await callProc('call getEntityHeader(?,null,null)', [req.params.id]);
-    res.json({ personal: decryptRow(rows[0]?.[0]) || null });
+    const raw = Array.isArray(rows[0]) ? rows[0][0] : (rows[0] || null);
+    res.json({ personal: raw ? decryptRow(raw) : null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -52,12 +59,34 @@ router.post('/updateEntityBio', auth, async (req, res) => {
 router.post('/updateEntityInterestsTag', auth, async (req, res) => {
   const i = req.body;
   try {
-    const rows = await callProc('call updateEntityInterestsTag(?,?,null,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-      i.action, i.entityId, i.interestsId || null, i.categoryId || null,
-      i.tagId || null, i.summary || null, i.whatIWant || null,
-      i.tag1 || null, i.tag2 || null, i.tag3 || null, i.tag4 || null,
-      i.tag5 || null, i.tag6 || null, i.tag7 || null, i.tag8 || null,
-      i.tag9 || null, i.tag10 || null, i.companyId || null, i.teamId || null
+    // SP signature: (action, entityId, categoryId, tagId, summary, whatIWant,
+    //   mission, vission, value,
+    //   missionBgImg, vissionBgImag, valueBgImg,
+    //   missionBodyColor, vissionBodyColor, valueBodyColor,
+    //   missionHeadingColor, vissionHeadingColor, valueHeadingColor,
+    //   missionOpacity, vissionOpacity, valueOpacity)
+    const rows = await callProc('call updateEntityInterestsTag(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+      i.action || 'ADD',
+      i.entityId,
+      i.categoryId || null,
+      i.tagId || null,
+      i.summary || null,
+      i.whatIWant || null,
+      i.mission || null,
+      i.vission || null,
+      i.value || null,
+      i.missionBgImg || null,
+      i.vissionBgImag || null,
+      i.valueBgImg || null,
+      i.missionBodyColor || null,
+      i.vissionBodyColor || null,
+      i.valueBodyColor || null,
+      i.missionHeadingColor || null,
+      i.vissionHeadingColor || null,
+      i.valueHeadingColor || null,
+      i.missionOpacity || null,
+      i.vissionOpacity || null,
+      i.valueOpacity || null,
     ]);
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
