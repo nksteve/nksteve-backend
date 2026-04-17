@@ -285,6 +285,31 @@ router.post('/updateAction', auth, async (req, res) => {
   }
 });
 
+// Update action progress (slider drag — matches vembu updateAction proc)
+// Body: { updateDelete, goalTagId, action: { actionTagId, growthPlanId, tagId, progress(0-1), ownerId, teamId } }
+router.post('/updateActionProgress', auth, async (req, res) => {
+  try {
+    const { updateDelete, goalTagId, action: a } = req.body;
+    // progress comes in as 0-1 decimal from frontend (matching vembu)
+    const rows = await callProc('call updateAction(?,?,?,?,?,?,?,?,?,?)', [
+      updateDelete || 'PROGRESS',
+      a.growthPlanId  || null,
+      a.actionTagId   || null,
+      goalTagId       || null,
+      a.tagId         || null,
+      a.ownerId       || null,
+      a.actionMilestoneDate || null,
+      a.progress      != null ? a.progress : null,
+      a.orderBy       || null,
+      a.teamId        || String(a.growthPlanId), // vembu: teamId defaults to planId string
+    ]);
+    res.json({ result: rows });
+  } catch (e) {
+    console.error('updateActionProgress error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Update plans order
 router.post('/updatePlansOrder', auth, async (req, res) => {
   const { entityId, planOrderList } = req.body;
