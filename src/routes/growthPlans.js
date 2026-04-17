@@ -137,6 +137,22 @@ router.post('/growth-plan-details', auth, async (req, res) => {
            ORDER BY actionTagId`,
           [growthPlanId, ...goalIds]
         );
+        // Fetch notes + docs counts for actions
+        const actionTagIds = actionRows.map(r => r.actionTagId);
+        let notesCountMap = {}, docsCountMap = {};
+        if (actionTagIds.length > 0) {
+          const ph2 = actionTagIds.map(() => '?').join(',');
+          const [nc] = await query(
+            `SELECT actionTagId, COUNT(*) AS cnt FROM gp_notes WHERE growthPlanId=? AND actionTagId IN (${ph2}) GROUP BY actionTagId`,
+            [growthPlanId, ...actionTagIds]
+          );
+          (Array.isArray(nc) ? nc : [nc]).forEach(r => { if (r && r.actionTagId) notesCountMap[r.actionTagId] = r.cnt; });
+          const [dc] = await query(
+            `SELECT actionTagId, COUNT(*) AS cnt FROM documents WHERE growthPlanId=? AND actionTagId IN (${ph2}) GROUP BY actionTagId`,
+            [growthPlanId, ...actionTagIds]
+          );
+          (Array.isArray(dc) ? dc : [dc]).forEach(r => { if (r && r.actionTagId) docsCountMap[r.actionTagId] = r.cnt; });
+        }
         actions = actionRows.map(r => ({
           actionId:                r.actionTagId,
           actionTagId:             r.actionTagId,
@@ -146,10 +162,34 @@ router.post('/growth-plan-details', auth, async (req, res) => {
           // cgp_view stores 0-1 decimal → multiply by 100 for display
           actionGoalPercentAchieve: (r.actionGoalPercentAchieve || 0) * 100,
           endDate:                 r.endDate,
+          notesCount:              notesCountMap[r.actionTagId] || 0,
+          docsCount:               docsCountMap[r.actionTagId] || 0,
         }));
       }
 
-      return res.json({ growthPlan: planHeader, goals, actions });
+      // Fetch notes + docs counts for goals
+      const goalTagIds = goalRows.map(r => r.goalTagId);
+      let goalNotesMap = {}, goalDocsMap = {};
+      if (goalTagIds.length > 0) {
+        const ph3 = goalTagIds.map(() => '?').join(',');
+        const gnc = await query(
+          `SELECT goalTagId, COUNT(*) AS cnt FROM gp_notes WHERE growthPlanId=? AND goalTagId IN (${ph3}) AND actionTagId IS NULL GROUP BY goalTagId`,
+          [growthPlanId, ...goalTagIds]
+        );
+        (Array.isArray(gnc) ? gnc : [gnc]).forEach(r => { if (r && r.goalTagId) goalNotesMap[r.goalTagId] = r.cnt; });
+        const gdc = await query(
+          `SELECT goalTagId, COUNT(*) AS cnt FROM documents WHERE growthPlanId=? AND goalTagId IN (${ph3}) AND actionTagId IS NULL GROUP BY goalTagId`,
+          [growthPlanId, ...goalTagIds]
+        );
+        (Array.isArray(gdc) ? gdc : [gdc]).forEach(r => { if (r && r.goalTagId) goalDocsMap[r.goalTagId] = r.cnt; });
+      }
+      const goalsWithCounts = goals.map(g => ({
+        ...g,
+        notesCount: goalNotesMap[g.goalTagId] || 0,
+        docsCount:  goalDocsMap[g.goalTagId]  || 0,
+      }));
+
+      return res.json({ growthPlan: planHeader, goals: goalsWithCounts, actions });
     }
   } catch (e) {
     console.error('growth-plan-details error:', e);
@@ -437,6 +477,87 @@ router.post('/updateTimebankTemplate', auth, async (req, res) => {
       t.action, t.growthPlanId, t.entityId, t.weekNumber, t.sessionDuration, t.sessionType, t.sessionDate, t.notes
     ]);
     res.json({ result: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ─── Notes: GET / ADD / DELETE ─────────────────────────────────────────────── */
+router.post('/updateGoalActionNotes', auth, async (req, res) => {
+  const { action, growthPlanId, goalTagId, actionTagId, notesType, notes, notesId } = req.body;
+  const entityId = req.user.entityId;
+  try {
+    if (action === 'GET') {
+      const filter = actionTagId
+        ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId=? ORDER BY created DESC'
+        : goalTagId
+          ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId IS NULL ORDER BY created DESC'
+          : 'WHERE growthPlanId=? ORDER BY created DESC';
+      const params = actionTagId
+        ? [growthPlanId, goalTagId, actionTagId]
+        : goalTagId
+          ? [growthPlanId, goalTagId]
+          : [growthPlanId];
+      const rows = await query(`SELECT * FROM gp_notes ${filter}`, params);
+      return res.json({ result: rows });
+    }
+    if (action === 'ADD' || action === 'SAVE') {
+      await query(
+        `INSERT INTO gp_notes (communityGrowthPlanId, growthPlanId, goalTagId, actionTagId, teamId, entityId, notesType, notes, gp_type, created, lastUpdated)
+         VALUES (?,?,?,?,?,?,?,?,1,NOW(),NOW())`,
+        [growthPlanId, growthPlanId, goalTagId || null, actionTagId || null, String(growthPlanId), entityId, notesType || 'public', notes]
+      );
+      const rows = await query(
+        'SELECT * FROM gp_notes WHERE growthPlanId=? AND goalTagId<=>? AND actionTagId<=>? ORDER BY created DESC',
+        [growthPlanId, goalTagId || null, actionTagId || null]
+      );
+      return res.json({ result: rows });
+    }
+    if (action === 'DELETE') {
+      await query('DELETE FROM gp_notes WHERE notesId=? AND entityId=?', [notesId, entityId]);
+      return res.json({ result: { deleted: true } });
+    }
+    res.status(400).json({ error: 'Unknown action' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ─── Documents: GET / ADD / DELETE ─────────────────────────────────────────── */
+router.post('/updateGoalfile', auth, async (req, res) => {
+  const { action, growthPlanId, goalTagId, actionTagId, fileName, fileUrl, documentId } = req.body;
+  try {
+    if (action === 'GET') {
+      const filter = actionTagId
+        ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId=?'
+        : goalTagId
+          ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId IS NULL'
+          : 'WHERE growthPlanId=?';
+      const params = actionTagId
+        ? [growthPlanId, goalTagId, actionTagId]
+        : goalTagId
+          ? [growthPlanId, goalTagId]
+          : [growthPlanId];
+      const rows = await query(`SELECT * FROM documents ${filter} ORDER BY created DESC`, params);
+      return res.json({ result: rows });
+    }
+    if (action === 'ADD') {
+      await query(
+        `INSERT INTO documents (growthPlanId, teamId, goalTagId, actionTagId, fileName, fileUrl, created)
+         VALUES (?,?,?,?,?,?,NOW())`,
+        [growthPlanId, String(growthPlanId), goalTagId || null, actionTagId || null, fileName, fileUrl]
+      );
+      const rows = await query(
+        'SELECT * FROM documents WHERE growthPlanId=? AND goalTagId<=>? AND actionTagId<=>? ORDER BY created DESC',
+        [growthPlanId, goalTagId || null, actionTagId || null]
+      );
+      return res.json({ result: rows });
+    }
+    if (action === 'DELETE') {
+      await query('DELETE FROM documents WHERE documentId=?', [documentId]);
+      return res.json({ result: { deleted: true } });
+    }
+    res.status(400).json({ error: 'Unknown action' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
