@@ -111,19 +111,25 @@ router.post('/getMyPlans', auth, async (req, res) => {
     const raw = decryptRows(rows[0] || []);
     // Map SP field names to match vembu model (gp.name = resultSet.growthPlanName etc.)
     const statusMap = { 1: 'Open', 2: 'Complete', 3: 'Active', 4: 'Closed', 5: 'Deleted' };
-    const plans = raw.map(r => ({
-      ...r,
-      name:                    r.growthPlanName || r.name || '',
-      milestoneDate:           r.growthPlanMilestoneDate || r.milestoneDate || '',
-      growthPlanPercentAchieved: r.growthPlanPercentAchieved || 0,
-      colorCodeHex:            r.colorCodeHex || null,
-      status:                  statusMap[r.statusId] || 'Open',
-      statusLabel:             statusMap[r.statusId] || 'Open',
-      firstName:               r.firstName || '',
-      lastName:                r.lastName  || '',
-      growthPlanId:            r.growthPlanId,
-      isDeleted:               r.statusId === 5,
-    }));
+    const plans = raw.map(r => {
+      // v_growthPlanSummary returns growthPlanStatusId for plan status
+      // and statusId for the user's account status — use growthPlanStatusId
+      const planStatusId = r.growthPlanStatusId || r.statusId || 1;
+      return {
+        ...r,
+        name:                      r.growthPlanName || r.name || '',
+        milestoneDate:             r.growthPlanMilestoneDate || r.milestoneDate || '',
+        growthPlanPercentAchieved: r.growthPlanPercentAchieved || 0,
+        colorCodeHex:              r.colorCodeHex || r.colorCode || null,
+        statusId:                  planStatusId,
+        status:                    statusMap[planStatusId] || 'Open',
+        statusLabel:               statusMap[planStatusId] || 'Open',
+        firstName:                 r.firstName || '',
+        lastName:                  r.lastName  || '',
+        growthPlanId:              r.growthPlanId,
+        isDeleted:                 planStatusId === 5,
+      };
+    });
     res.json({ plans, myPlans: plans });
   } catch (e) {
     res.status(500).json({ error: e.message });
