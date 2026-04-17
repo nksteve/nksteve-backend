@@ -104,15 +104,12 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         completedOn:               gp.completed,
       };
 
-      // 3. Get goals — tag_goal.tagId joins gp_goaltag.tagId, goal name is tag_goal.name
+      // 3. Get goals from cgp_view — has live percentAchieved (0-1 decimal, multiply *100 for display)
       const goalRows = await query(
-        `SELECT gt.goalTagId, gt.milestoneDate AS goalMilestoneDate, gt.percentAchieved AS goalPercentAchieved,
-                gt.statusId AS goalStatusId, gt.objective AS goalObjectives, gt.orderBy,
-                tg.name AS goalName
-         FROM gp_goaltag gt
-         LEFT JOIN tag_goal tg ON gt.tagId = tg.tagId
-         WHERE gt.growthPlanId = ?
-         ORDER BY gt.orderBy, gt.goalTagId`,
+        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate
+         FROM cgp_view
+         WHERE growthPlanId = ? AND goalTagId IS NOT NULL AND actionTagId IS NULL
+         ORDER BY goalTagId`,
         [growthPlanId]
       );
 
@@ -120,27 +117,25 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         goalId:              r.goalTagId,
         goalTagId:           r.goalTagId,
         goalName:            r.goalName || '(unnamed)',
-        goalObjectives:      r.goalObjectives,
-        goalPercentAchieved: r.goalPercentAchieved || 0,
+        goalObjectives:      null,
+        // cgp_view stores 0-1 decimal → multiply by 100 for display
+        goalPercentAchieved: (r.goalPercentAchieved || 0) * 100,
         goalMilestoneDate:   r.goalMilestoneDate,
-        goalStatus:          statusMap[r.goalStatusId] || 'Open',
+        goalStatus:          'Open',
       }));
 
-      // 4. Get actions for all goals
-      // gp_actiongoal_join uses aTagId → tag_action.tagId, action name is tag_action.name
+      // 4. Get actions from cgp_view — has live actionGoalPercentAchieve (0-1 decimal)
       const goalIds = goalRows.map(r => r.goalTagId);
       let actions = [];
       if (goalIds.length > 0) {
         const placeholders = goalIds.map(() => '?').join(',');
         const actionRows = await query(
-          `SELECT a.actionTagId, a.goalTagId, a.milestoneDate AS endDate,
-                  a.percentAchieved AS actionGoalPercentAchieve,
-                  ta.name AS actionName
-           FROM gp_actiongoal_join a
-           LEFT JOIN tag_action ta ON a.aTagId = ta.tagId
-           WHERE a.goalTagId IN (${placeholders})
-           ORDER BY a.orderBy, a.actionTagId`,
-          goalIds
+          `SELECT actionTagId, goalTagId, milestoneDate AS endDate,
+                  actionGoalPercentAchieve, actionName
+           FROM cgp_view
+           WHERE growthPlanId = ? AND actionTagId IS NOT NULL AND goalTagId IN (${placeholders})
+           ORDER BY actionTagId`,
+          [growthPlanId, ...goalIds]
         );
         actions = actionRows.map(r => ({
           actionId:                r.actionTagId,
@@ -148,7 +143,8 @@ router.post('/growth-plan-details', auth, async (req, res) => {
           goalId:                  r.goalTagId,
           actionName:              r.actionName || '(unnamed)',
           actionStatus:            'Open',
-          actionGoalPercentAchieve: r.actionGoalPercentAchieve || 0,
+          // cgp_view stores 0-1 decimal → multiply by 100 for display
+          actionGoalPercentAchieve: (r.actionGoalPercentAchieve || 0) * 100,
           endDate:                 r.endDate,
         }));
       }
