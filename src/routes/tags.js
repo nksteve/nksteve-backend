@@ -49,9 +49,10 @@ router.post('/goalActionCreate', auth, async (req, res) => {
 });
 
 router.post('/getPicklist', async (req, res) => {
-  const { picklistType, companyId } = req.body;
+  const { picklistType, companyId, entityId } = req.body;
   try {
-    const rows = await callProc('call getPicklist(?,?)', [picklistType, companyId || null]);
+    // Try with entityId first (vembu uses SEARCH_USER with entityId), fallback to companyId
+    const rows = await callProc('call getPicklist(?,?)', [picklistType, entityId || companyId || null]);
     res.json({ picklist: rows[0] || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
