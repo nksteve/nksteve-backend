@@ -117,6 +117,7 @@ router.post('/getMyPlans', auth, async (req, res) => {
     'MyCompletedGoalPlans':  2,
     'DeleteGoalPlan':        5,
     'InvitedGoalPlans':      1,
+    'MyAssignedGoals':       1,  // Nested Plans tab — assigned/nested plans
   };
   const _statusId = statusIdMap[_action] || 1;
   try {
