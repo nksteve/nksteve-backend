@@ -16,26 +16,39 @@ router.post('/reports', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /analyticsCompany
+// SP: REPORT_company(action, rc_companyId, rc_name, rc_charterId, rc_enabled, rc_startYear, rc_endYear, rc_lastProcessedDate, rc_created, companyId, DEBUG)
+// action='GET' lists companies mapped to companyId
+// action='GETPERIOD' lists years for a given rc_companyId
 router.post('/analyticsCompany', auth, async (req, res) => {
-  const { entityId, companyId, filter1, filter2, filter3, startDate, endDate, action } = req.body;
+  const { action, companyId, reportCompanyId } = req.body;
   try {
-    const rows = await callProc('call REPORT_company(?,?,?,?,?,?,?,null,null,?,null)', [
-      action || 'GET', entityId || null, companyId || null,
-      filter1 || null, filter2 || null, filter3 || null,
-      startDate || null, endDate || null
-    ]);
-    res.json({ data: rows[0] || [] });
+    let rows;
+    if ((action || 'GET') === 'GETPERIOD') {
+      // Get available years for a specific rc company
+      rows = await callProc('CALL REPORT_company(?,?,null,null,null,null,null,null,null,null,null)',
+        ['GETPERIOD', reportCompanyId || null]);
+    } else {
+      // GET — list all rc_companies mapped to this companyId
+      rows = await callProc('CALL REPORT_company(?,null,null,null,null,null,null,null,null,?,null)',
+        ['GET', companyId || null]);
+    }
+    const data = Array.isArray(rows[0]) ? rows[0] : rows;
+    res.json({ results: data });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /analyticsData
+// SP: REPORT_data(action, rd_dataId, rd_runId, rd_companyId, rd_periodId, rd_rconfig_account, rd_rconfig_category, rd_value, rd_valueType, years, updateById, DEBUG)
+// Vembu sends: { action:'GET', companyId: rc_companyId, years: '2025,2024,2023' }
 router.post('/analyticsData', auth, async (req, res) => {
-  const { companyId, entityId, startDate, endDate, filter1, filter2 } = req.body;
+  const { action, companyId, years } = req.body;
   try {
-    const rows = await callProc('call REPORT_data(?,?,?,?,?,null,null,null,null,?,null,null)', [
-      companyId || null, entityId || null, startDate || null, endDate || null,
-      filter1 || null, filter2 || null
-    ]);
-    res.json({ data: rows[0] || [] });
+    const rows = await callProc('CALL REPORT_data(?,null,null,?,null,null,null,null,null,?,null,null)',
+      [action || 'GET', companyId || null, years || null]);
+    const data = Array.isArray(rows[0]) ? rows[0] : rows;
+    // Return as results[0] = array (Vembu reads res.data.results[0])
+    res.json({ results: [data] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
