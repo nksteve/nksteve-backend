@@ -23,6 +23,7 @@ app.use('/api', require('./routes/thoughtpad'));
 app.use('/api', require('./routes/tags'));
 app.use('/api', require('./routes/training'));
 app.use('/api', require('./routes/preferences'));
+app.use('/api', require('./routes/workplan'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
