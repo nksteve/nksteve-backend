@@ -35,4 +35,30 @@ router.post('/decisionMaking', async (req, res) => {
   }
 });
 
+// ─── HeadsUp (Action Feedback) ───────────────────────────────────────────────
+router.post('/updateActionFeedback', async (req, res) => {
+  try {
+    const {
+      action, teamId, goalTagId, actionTagId,
+      actionFeedback, entityId, actionFeedbackStatus
+    } = req.body;
+    const rows = await callProc(
+      'call updateActionFeedback(?,?,?,?,?,?,?)',
+      [
+        action || 'UPDATE',
+        teamId || null,
+        goalTagId || null,
+        actionTagId || null,
+        actionFeedback || null,
+        entityId || null,
+        actionFeedbackStatus != null ? actionFeedbackStatus : null,
+      ]
+    );
+    res.json({ header: { errorCode: 0 }, results: rows[0] || [] });
+  } catch (e) {
+    console.error('updateActionFeedback error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
