@@ -49,9 +49,9 @@ router.post('/growth-plan-details', auth, async (req, res) => {
       if (!gp) return res.json({ growthPlan: {}, goals: [], actions: [] });
 
       // 2. Get plan owner from cgp_contributors
-      // cgp_contributors uses cgpId (not growthPlanId) and ownerId=1 for primary owner
+      // The owner is the row where entityId = ownerId (self-referencing)
       const ownerContribRows = await query(
-        `SELECT entityId FROM cgp_contributors WHERE cgpId = ? AND ownerId = 1 LIMIT 1`,
+        `SELECT entityId FROM cgp_contributors WHERE cgpId = ? AND entityId = ownerId LIMIT 1`,
         [growthPlanId]
       );
       const ownerEntityId = ownerContribRows[0]?.entityId || entityId;
@@ -108,11 +108,13 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         videoLink:                 gp.videoLink,
         colorCodeHex:              gp.colorCodeHex || null,
         entityId:                  ownerEntityId,
+        ownerEntityId:             ownerEntityId,
         firstName:                 ownerFirst,
         lastName:                  ownerLast,
         ownerName:                 `${ownerFirst} ${ownerLast}`.trim(),
         createdDate:               gp.created,
         completedOn:               gp.completed,
+        allowAccess:               (entityId === ownerEntityId) ? 'EDIT' : 'VIEW',
       };
 
       // 3. Get goals from cgp_view — has live percentAchieved (0-1 decimal, multiply *100 for display)
