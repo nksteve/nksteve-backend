@@ -209,4 +209,135 @@ router.post('/updateCompany', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ─── Cron Settings ──────────────────────────────────────────────────────────
+router.post('/cronsettings', auth, async (req, res) => {
+  const { action, type, cronDay, cronTime, cronDate, companyId, status } = req.body;
+  try {
+    const rows = await callProc('call cron_settings(?,?,?,?,?,?,?)', [
+      action || 'GETAll',
+      type || 'GOALWEEKLYREPORT',
+      cronDay !== undefined ? cronDay : null,
+      cronTime !== undefined ? cronTime : null,
+      cronDate || null,
+      companyId || null,
+      status !== undefined ? status : null,
+    ]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    res.json({ header: { errorCode: 0 }, result });
+  } catch (e) { res.status(500).json({ header: { errorCode: 1 }, error: e.message }); }
+});
+
+// ─── SFTP Management (direct DB — SP has no GET action) ─────────────────────
+router.post('/sftpAdmin', auth, async (req, res) => {
+  const { action, companyId, location, username, password, fileName } = req.body;
+  try {
+    if (action === 'GET_COMPANIES') {
+      const rows = await query('SELECT id, name FROM company WHERE statusId=1 ORDER BY name', []);
+      res.json({ header: { errorCode: 0 }, results: { result: Array.isArray(rows) ? rows : [] } });
+    } else if (action === 'GET') {
+      const rows = await query('SELECT * FROM sftp_data WHERE companyId=? LIMIT 1', [companyId]);
+      const config = Array.isArray(rows) ? rows[0] : null;
+      res.json({ header: { errorCode: 0 }, results: { result: { config, data: [] } } });
+    } else if (action === 'INSERT') {
+      await callProc('call SFTP_update(?,?,?,?,?,?)', ['INSERT', companyId, location || null, username || null, password || null, fileName || null]);
+      res.json({ header: { errorCode: 0 } });
+    } else if (action === 'UPDATE') {
+      await query('UPDATE sftp_data SET fileName=? WHERE companyId=?', [fileName, companyId]);
+      res.json({ header: { errorCode: 0 } });
+    } else {
+      res.json({ header: { errorCode: 0 }, results: {} });
+    }
+  } catch (e) { res.status(500).json({ header: { errorCode: 1 }, error: e.message }); }
+});
+
+router.post('/sftpUser', auth, async (req, res) => {
+  const { action, companyId, fileName } = req.body;
+  try {
+    if (action === 'UPDATE') {
+      await query('UPDATE sftp_data SET fileName=? WHERE companyId=?', [fileName, companyId]);
+    }
+    res.json({ header: { errorCode: 0 } });
+  } catch (e) { res.status(500).json({ header: { errorCode: 1 }, error: e.message }); }
+});
+
+router.post('/createSftpUser', auth, async (req, res) => {
+  const { companyId, location, username, password } = req.body;
+  try {
+    await callProc('call SFTP_update(?,?,?,?,?,null)', ['INSERT', companyId || null, location || null, username || null, password || null]);
+    res.json({ header: { errorCode: 0 } });
+  } catch (e) { res.status(500).json({ header: { errorCode: 1 }, error: e.message }); }
+});
+
+// ─── Company Management ──────────────────────────────────────────────────────
+// GET list: use getPicklist(COMPANY) — already exists at /getPicklist
+// INSERT/UPDATE/DELETE: updateCompany(_action, _name, _url, _id, _logoUrl,
+//   _vision, _mission, _values, _missionBgImg, _vissionBgImag, _valueBgImg,
+//   _missionBodyColor, _vissionBodyColor, _valueBodyColor,
+//   _missionHeadingColor, _vissionHeadingColor, _valueHeadingColor,
+//   _missionOpacity, _vissionOpacity, _valueOpacity) — 20 params
+router.post('/company', auth, async (req, res) => {
+  const d = req.body;
+  try {
+    if (d.action === 'DELETE') {
+      const rows = await callProc('call updateCompany(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+        'DELETE', null, null, d.id || null, null,
+        null, null, null, null, null, null,
+        null, null, null, null, null, null,
+        null, null, null,
+      ]);
+      const ok = Array.isArray(rows[0]) ? rows[0][0] : (rows[0] || {});
+      res.json({ header: { errorCode: ok ? 0 : 1 } });
+    } else {
+      const rows = await callProc('call updateCompany(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
+        d.action || 'INSERT',
+        d.name || null,
+        d.url || null,
+        d.id || null,
+        d.logoUrl || null,
+        d.vision || null,
+        d.mission || null,
+        d.values || null,
+        d.missionBgImg || null,
+        d.vissionBgImag || null,
+        d.valueBgImg || null,
+        d.missionBodyColor || null,
+        d.vissionBodyColor || null,
+        d.valueBodyColor || null,
+        d.missionHeadingColor || null,
+        d.vissionHeadingColor || null,
+        d.valueHeadingColor || null,
+        d.missionOpacity || null,
+        d.vissionOpacity || null,
+        d.valueOpacity || null,
+      ]);
+      const ok = Array.isArray(rows[0]) ? rows[0][0] : (rows[0] || {});
+      res.json({ header: { errorCode: ok ? 0 : 1 } });
+    }
+  } catch (e) { res.status(500).json({ header: { errorCode: 1 }, error: e.message }); }
+});
+
+// ─── Company file upload ─────────────────────────────────────────────────────
+const multer = require('multer');
+const AWS = require('aws-sdk');
+const companyUpload = multer({ storage: multer.memoryStorage() });
+
+router.post('/company/upload', auth, companyUpload.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  const s3 = new AWS.S3({
+    accessKeyId: process.env.S3_API_KEY,
+    secretAccessKey: process.env.S3_API_SECRET,
+    region: 'us-east-1',
+  });
+  s3.upload({
+    Bucket: process.env.S3_BUCKET,
+    Key: `dsdar-userbio/${Date.now()}_${req.file.originalname}`,
+    Body: req.file.buffer,
+    ContentType: req.file.mimetype,
+    ACL: 'public-read',
+  }, (err, data) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ Location: data.Location });
+  });
+});
+
 module.exports = router;
