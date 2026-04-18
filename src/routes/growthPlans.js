@@ -117,7 +117,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
 
       // 3. Get goals from cgp_view — has live percentAchieved (0-1 decimal, multiply *100 for display)
       const goalRows = await query(
-        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate
+        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate, goalFeedbackStatus
          FROM cgp_view
          WHERE growthPlanId = ? AND goalTagId IS NOT NULL AND actionTagId IS NULL
          ORDER BY goalTagId`,
@@ -131,8 +131,9 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         goalObjectives:      null,
         // cgp_view stores 0-1 decimal → multiply by 100 for display
         goalPercentAchieved: (r.goalPercentAchieved || 0) * 100,
-        goalMilestoneDate:   r.goalMilestoneDate,
-        goalStatus:          'Open',
+        goalMilestoneDate:     r.goalMilestoneDate,
+        goalFeedbackStatus:    r.goalFeedbackStatus,
+        goalStatus:            'Open',
       }));
 
       // 4. Get actions from cgp_view — has live actionGoalPercentAchieve (0-1 decimal)
@@ -142,6 +143,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         const placeholders = goalIds.map(() => '?').join(',');
         const actionRows = await query(
           `SELECT actionTagId, goalTagId, milestoneDate AS endDate,
+                  actionGoalMilestoneDate, actionFeedbackStatus,
                   actionGoalPercentAchieve, actionName
            FROM cgp_view
            WHERE growthPlanId = ? AND actionTagId IS NOT NULL AND goalTagId IN (${placeholders})
@@ -172,7 +174,8 @@ router.post('/growth-plan-details', auth, async (req, res) => {
           actionStatus:            'Open',
           // cgp_view stores 0-1 decimal → multiply by 100 for display
           actionGoalPercentAchieve: (r.actionGoalPercentAchieve || 0) * 100,
-          endDate:                 r.endDate,
+          endDate:                 r.actionGoalMilestoneDate || null,
+          actionFeedbackStatus:    r.actionFeedbackStatus,
           notesCount:              notesCountMap[r.actionTagId] || 0,
           docsCount:               docsCountMap[r.actionTagId] || 0,
         }));
