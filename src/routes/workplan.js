@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { callProc } = require('../db/pool');
 const { decryptRows } = require('../helpers/decrypt');
+const auth    = require('../middleware/auth');
 
 // ─── Decision Making ──────────────────────────────────────────────────────────
 router.post('/decisionMaking', async (req, res) => {

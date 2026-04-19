@@ -15,8 +15,8 @@ const poolConfig = {
   // Keep connections alive to avoid server-side idle disconnects
   enableKeepAlive:    true,
   keepAliveInitialDelay: 10000,
-  // Skip SSL cert verification (RDS self-signed cert)
-  ssl: { rejectUnauthorized: false },
+  // SSL not needed for local MySQL
+  // ssl: { rejectUnauthorized: false },
 };
 
 let pool = mysql.createPool(poolConfig);
