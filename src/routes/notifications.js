@@ -66,7 +66,8 @@ router.post('/updateEntityActivity', auth, async (req, res) => {
   const b = req.body;
   const entityId = b.entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call updateEntityActivity(?,?,?,?,?,?,?,?,?,?,?,?)', [
+    // SP: updateEntityActivity(_auditActivityType, _logType, _activity, _entityId, _growthPlanId, _goalTagId, _actionTagId, _meetingId, _page, _auditText, _auditValue, _auditMessage, _auditLink)
+    const rows = await callProc('call updateEntityActivity(?,?,?,?,?,?,?,?,?,?,?,?,?)', [
       b.auditActivityType || 'UIH',
       b.logType || 'I',
       b.activity || null,
@@ -75,6 +76,7 @@ router.post('/updateEntityActivity', auth, async (req, res) => {
       b.goalTagId || null,
       b.actionTagId || null,
       b.meetingId || null,
+      b.page || null,
       b.auditText || null,
       b.auditValue || null,
       b.auditMessage || null,

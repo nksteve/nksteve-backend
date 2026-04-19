@@ -151,11 +151,19 @@ router.post('/deleteUserByEntityId', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: cgp_getAllContributors(_companyId, _action, _goalTagId, _communityGrowthPlanId, _teamId)
 router.post('/cgp_getAllContributors', auth, async (req, res) => {
-  const { entityId, companyId, teamId, growthPlanId, action } = req.body;
+  const { entityId, companyId, teamId, growthPlanId, action, goalTagId } = req.body;
   try {
-    const rows = await callProc('call cgp_getAllContributors(?,?,?,?,?)', [entityId, companyId || null, teamId || null, growthPlanId || null, action || null]);
-    res.json({ contributors: rows[0] || [] });
+    const rows = await callProc('call cgp_getAllContributors(?,?,?,?,?)', [
+      companyId || null,
+      action || 'GET',
+      goalTagId || null,
+      growthPlanId || null,
+      teamId || null
+    ]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    res.json({ contributors: result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -15,7 +15,7 @@ const S3_GOAL_FOLDER = process.env.S3_GOAL_FOLDER || 'dsdar-goal-documents';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ─── getCommunityGrowthPlanDetail SP signature ───────────────────────────────
-// call getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
+// call getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId)
 
 // Get growth plan summary / details
 router.post('/growth-plan-details', auth, async (req, res) => {
@@ -78,8 +78,8 @@ router.post('/growth-plan-details', auth, async (req, res) => {
       let computedPercent = gp.percentAchieved || 0;
       try {
         const spRows = await callProc(
-          'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
-          ['AllPlans', entityId, null, 1, null, null, companyId]
+          'call getCommunityGrowthPlanDetail(?,?,?,?,?,?)',
+          ['AllPlans', entityId, null, 1, null, null]
         );
         const spPlan = (spRows[0] || []).find(r => r.growthPlanId == growthPlanId);
         if (spPlan && spPlan.growthPlanPercentAchieved != null) {
@@ -119,10 +119,10 @@ router.post('/growth-plan-details', auth, async (req, res) => {
 
       // 3. Get goals from cgp_view — has live percentAchieved (0-1 decimal, multiply *100 for display)
       const goalRows = await query(
-        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate, goalFeedbackStatus, publishToMaster, goalProgressType
+        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate, goalFeedbackStatus, publishToMaster, goalOrderBy
          FROM cgp_view
          WHERE growthPlanId = ? AND goalTagId IS NOT NULL AND actionTagId IS NULL
-         ORDER BY goalTagId`,
+         ORDER BY goalOrderBy, goalTagId`,
         [growthPlanId]
       );
 
@@ -136,7 +136,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         goalMilestoneDate:     r.goalMilestoneDate,
         goalFeedbackStatus:    r.goalFeedbackStatus,
         publishToMaster:       r.publishToMaster != null ? r.publishToMaster : 0,
-        goalProgressType:      r.goalProgressType || 0,
+        goalProgressType:      0,
         goalStatus:            'Open',
       }));
 
@@ -235,10 +235,10 @@ router.post('/getMyPlans', auth, async (req, res) => {
   };
   const _statusId = statusIdMap[_action] || 1;
   try {
-    // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId, _companyId)
+    // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId)
     const rows = await callProc(
-      'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
-      [_action, eid, null, _statusId, null, null, cid]
+      'call getCommunityGrowthPlanDetail(?,?,?,?,?,?)',
+      [_action, eid, null, _statusId, null, null]
     );
     const flat = rows[0] || [];
     const raw  = decryptRows(flat);
@@ -305,17 +305,22 @@ router.post('/updateGrowthplanSummary', auth, async (req, res) => {
 });
 
 // Update goal
+// SP: updateGoal(_action, _growthPlanId, _goalTagId, _tagId, _categoryId, _milestoneDate, _goalObjectives, _statusId, _orderBy, _ownerId, _teamId)
 router.post('/updateGoal', auth, async (req, res) => {
   const g = req.body;
   try {
-    const rows = await callProc('call updateGoal(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-      g.action || 'UPDATE', g.goalId || null, g.growthPlanId || null, g.entityId,
-      g.name || null, g.categoryId || null, g.statusId || null, g.measureTypeId || null,
-      g.startValue || null, g.targetValue || null, g.actualValue || null,
-      g.minValue || null, g.maxValue || null, g.stretchValue || null,
-      g.startDate || null, g.endDate || null, g.comments || null,
-      g.goalOrder || null, g.companyId || null, g.goalTagId || null,
-      g.teamId || null, g.isCGP || null, g.minName || null, g.maxName || null, g.stretchName || null
+    const rows = await callProc('call updateGoal(?,?,?,?,?,?,?,?,?,?,?)', [
+      g.action || 'UPDATE',
+      g.growthPlanId || null,
+      g.goalTagId || null,
+      g.tagId || null,
+      g.categoryId || null,
+      g.milestoneDate || null,
+      g.goalObjectives || g.comments || null,
+      g.statusId || null,
+      g.orderBy || g.goalOrder || null,
+      g.ownerId || g.entityId || null,
+      g.teamId || String(g.growthPlanId) || null
     ]);
     res.json({ result: rows });
   } catch (e) {
@@ -326,15 +331,29 @@ router.post('/updateGoal', auth, async (req, res) => {
 // Update action
 router.post('/updateAction', auth, async (req, res) => {
   const a = req.body;
+  const entityId = a.entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call updateGoalAction(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-      a.action || 'UPDATE', a.actionId || null, a.goalId || null, a.entityId,
-      a.name || null, a.statusId || null, a.actionOrder || null,
-      a.startDate || null, a.endDate || null, a.comments || null,
-      a.companyId || null, a.teamId || null, a.isCGP || null,
-      a.measureId || null, a.actualValue || null
-    ]);
-    res.json({ result: rows });
+    // Name update uses UpdateActionGoalName SP
+    if (a.name != null) {
+      await callProc('call UpdateActionGoalName(?,?,?,?,?,?,?)', [
+        'UPDATEACTIONNAME',
+        a.growthPlanId || null,
+        a.teamId || String(a.growthPlanId) || null,
+        entityId,
+        a.goalId || null,
+        a.actionId || null,
+        a.name
+      ]);
+    }
+    // Progress/status update uses updateAction SP
+    if (a.statusId != null || a.actionOrder != null) {
+      await callProc('call updateAction(?,?,?,?,?,?,?,?,?,?)', [
+        'ACTIONORDERBY', a.growthPlanId || null, a.actionId || null,
+        a.goalId || null, null, entityId,
+        null, null, a.actionOrder || null, a.teamId || String(a.growthPlanId) || null
+      ]);
+    }
+    res.json({ result: { success: true } });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -519,7 +538,7 @@ router.post('/updateGoalActionNotes', auth, async (req, res) => {
           : [growthPlanId];
       const rows = await query(
         `SELECT n.*, e.firstName, e.lastName FROM gp_notes n
-         LEFT JOIN entity e ON e.entityId = n.entityId
+         LEFT JOIN entity_user e ON e.entityId = n.entityId
          WHERE ${filter} ORDER BY n.created DESC`,
         params
       );
@@ -528,8 +547,8 @@ router.post('/updateGoalActionNotes', auth, async (req, res) => {
     }
     if (action === 'ADD' || action === 'SAVE') {
       await query(
-        `INSERT INTO gp_notes (communityGrowthPlanId, growthPlanId, goalTagId, actionTagId, teamId, entityId, notesType, notes, gp_type, created, lastUpdated)
-         VALUES (?,?,?,?,?,?,?,?,1,NOW(),NOW())`,
+        `INSERT INTO gp_notes (communityGrowthPlanId, growthPlanId, goalTagId, actionTagId, teamId, entityId, notesType, notes, gp_type, created)
+         VALUES (?,?,?,?,?,?,?,?,1,NOW())`,
         [growthPlanId, growthPlanId, goalTagId || null, actionTagId || null, String(growthPlanId), entityId, notesType || 'public', notes]
       );
       const rows = await query(

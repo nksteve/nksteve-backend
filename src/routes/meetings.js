@@ -3,64 +3,96 @@ const router = require('express').Router();
 const auth = require('../middleware/auth');
 const { callProc } = require('../db/pool');
 
+// SP: getMeetings(_type, _entityId, _weeksOutVal)
 router.post('/getMeetings', auth, async (req, res) => {
-  const { entityId, companyId, statusId } = req.body;
+  const { action, entityId, weeksOut } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetings(?,?,?)', [entityId, companyId || null, statusId || null]);
-    res.json({ meetings: rows[0] || [] });
+    const rows = await callProc('call getMeetings(?,?,?)', [action || 'PENDING', eid, weeksOut || null]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    const decrypted = decryptRows(result);
+    res.json({ meetings: decrypted });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: getMeetingsCalendar(_entityId, _startDate, _bucketScope)
 router.post('/getMeetingsCalendar', auth, async (req, res) => {
-  const { entityId, companyId, statusId } = req.body;
+  const { entityId, startDate, bucketScope } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetingsCalendar(?,?,?)', [entityId, companyId || null, statusId || null]);
-    res.json({ meetings: rows[0] || [] });
+    const rows = await callProc('call getMeetingsCalendar(?,?,?)', [eid, startDate || null, bucketScope || null]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    res.json({ meetings: result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: getMeetingsDetail(_type, _entityId)
 router.post('/getMeetingsDetail', auth, async (req, res) => {
-  const { entityId, meetingId } = req.body;
+  const { entityId, meetingId, type } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetingsDetail(?,?)', [entityId, meetingId]);
-    res.json({ meeting: rows[0]?.[0] || null });
+    const rows = await callProc('call getMeetingsDetail(?,?)', [type || 'PENDING', eid]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    const decrypted = decryptRows(result);
+    res.json({ meetings: decrypted, meeting: decrypted[0] || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: getMeetingsDetailByMeetingId(_action, _entityId, _meetingId)
 router.post('/getMeetingsDetailByMeetingId', auth, async (req, res) => {
-  const { meetingId, entityId, companyId } = req.body;
+  const { meetingId, entityId, action } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetingsDetailByMeetingId(?,?,?)', [meetingId, entityId, companyId || null]);
-    res.json({ meeting: rows[0]?.[0] || null });
+    const rows = await callProc('call getMeetingsDetailByMeetingId(?,?,?)', [action || 'DETAIL', eid, meetingId]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    const decrypted = decryptRows(result);
+    res.json({ meeting: decrypted[0] || null, meetings: decrypted });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.post('/getMeetingsDetailByGrowthPlanId', auth, async (req, res) => {
   const { growthPlanId, entityId, companyId } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetingsDetailByGrowthPlanId(?,?,?)', [growthPlanId, entityId, companyId || null]);
-    res.json({ meetings: rows[0] || [] });
+    const rows = await callProc('call getMeetingsDetailByGrowthPlanId(?,?,?)', [growthPlanId, eid, companyId || null]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    res.json({ meetings: result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: updateMeeting(_action, _meetingId, _sessionId, _sessionToken, _archiveUrl, _statusId, _topic, _title, _durationMinutes, _scheduledMinutes, _scheduledUTC, _joinGC, _joinMM, _rescheduledEntityId, _growthPlanId)
 router.post('/updateMeeting', auth, async (req, res) => {
   const m = req.body;
   try {
     const rows = await callProc('call updateMeeting(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
-      m.action, m.meetingId || null, m.growthPlanId || null, m.entityId,
-      m.title || null, m.meetingDate || null, m.startTime || null, m.endTime || null,
-      m.description || null, m.statusId || null, m.companyId || null, m.teamId || null,
-      m.meetingType || null, m.location || null, m.isCGP || null
+      m.action || 'UPDATE',
+      m.meetingId || null,
+      m.sessionId || null,
+      m.sessionToken || null,
+      m.archiveUrl || null,
+      m.statusId || null,
+      m.topic || null,
+      m.title || null,
+      m.durationMinutes || null,
+      m.scheduledMinutes || null,
+      m.scheduledUTC || m.meetingDate || null,
+      m.joinGC || null,
+      m.joinMM || null,
+      m.rescheduledEntityId || null,
+      m.growthPlanId || null
     ]);
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: getTeamPlanMeetings(_growthplanId, _entityId, _managerEntityId)
 router.post('/getTeamPlanMeetings', auth, async (req, res) => {
-  const { growthPlanId, entityId, companyId } = req.body;
+  const { growthPlanId, entityId, managerEntityId } = req.body;
+  const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getTeamPlanMeetings(?,?,?)', [growthPlanId, entityId, companyId || null]);
-    res.json({ meetings: rows[0] || [] });
+    const rows = await callProc('call getTeamPlanMeetings(?,?,?)', [growthPlanId, eid, managerEntityId || null]);
+    const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+    res.json({ meetings: result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

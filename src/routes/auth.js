@@ -7,12 +7,22 @@ router.post('/login', async (req, res) => {
   const { email, password, companyId } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
   try {
-    // Use ENTITY_login stored procedure (matches vembu implementation)
-    const loginRows = await callProc('call ENTITY_login(?,?,?,?,?)', ['Login', null, email, password, null]);
-    const loginResult = Array.isArray(loginRows[0]) ? loginRows[0][0] : loginRows[0];
-    if (!loginResult || !loginResult.entityId) {
+    // Direct SQL login — bypasses SP collation mismatch on workspace MariaDB
+    // SP ENTITY_login was compiled with utf8mb4_unicode_ci but tables are now utf8mb4_uca1400_ai_ci
+    const userRows = await query(
+      'SELECT entityId, email, `password`, tokenId, companyId, isAccountSetupComplete FROM entity_user WHERE email = ? LIMIT 1',
+      [email]
+    );
+    const dbUser = userRows[0];
+    if (!dbUser) return res.status(401).json({ error: 'Invalid credentials' });
+    if (dbUser.password && dbUser.password !== password) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    // Auto-set password if not yet set (matching SP behaviour)
+    if (!dbUser.password) {
+      await query('UPDATE entity_user SET `password`=? WHERE email=?', [password, email]);
+    }
+    const loginResult = { entityId: dbUser.entityId, tokenId: dbUser.tokenId };
 
     // Get entity header details (use entityId, not email — SP expects integer)
     let entity = {};
@@ -23,12 +33,8 @@ router.post('/login', async (req, res) => {
       entity = loginResult;
     }
 
-    // Get companyId from entity_user if not provided
-    let cid = parseInt(companyId, 10) || null;
-    if (!cid) {
-      const userRows = await query('SELECT companyId FROM entity_user WHERE email = ? LIMIT 1', [email]);
-      cid = userRows[0]?.companyId || 1;
-    }
+    // Get companyId — already in dbUser from our direct query
+    let cid = parseInt(companyId, 10) || dbUser.companyId || 1;
 
     const token = jwt.sign(
       { entityId: loginResult.entityId, companyId: cid, email },

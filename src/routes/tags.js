@@ -25,13 +25,21 @@ router.get('/goals', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// SP: updateCustomizedTag(_action, _entityId, _growthPlanId, _categoryId, _scope, _name, _goalTagId, _experienceId, _feedbackId, _teamId)
 router.post('/updateCustomizedTag', auth, async (req, res) => {
   const t = req.body;
   try {
-    const rows = await callProc('call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?,?)', [
-      t.action, t.companyId || null, t.entityId || null, t.growthPlanId || null,
-      t.categoryId || null, t.scope || null, t.name || null, t.goalTagId || null,
-      t.experienceId || null, t.feedbackId || null, t.teamId || null
+    const rows = await callProc('call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?)', [
+      t.action,
+      t.entityId || null,
+      t.growthPlanId || null,
+      t.categoryId || null,
+      t.scope || null,
+      t.name || null,
+      t.goalTagId || null,
+      t.experienceId || null,
+      t.feedbackId || null,
+      t.teamId || null
     ]);
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
