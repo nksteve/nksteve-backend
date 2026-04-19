@@ -505,17 +505,23 @@ router.post('/updateGoalActionNotes', auth, async (req, res) => {
   try {
     if (action === 'GET') {
       const filter = actionTagId
-        ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId=? ORDER BY created DESC'
+        ? 'n.growthPlanId=? AND n.goalTagId=? AND n.actionTagId=?'
         : goalTagId
-          ? 'WHERE growthPlanId=? AND goalTagId=? AND actionTagId IS NULL ORDER BY created DESC'
-          : 'WHERE growthPlanId=? ORDER BY created DESC';
+          ? 'n.growthPlanId=? AND n.goalTagId=? AND n.actionTagId IS NULL'
+          : 'n.growthPlanId=?';
       const params = actionTagId
         ? [growthPlanId, goalTagId, actionTagId]
         : goalTagId
           ? [growthPlanId, goalTagId]
           : [growthPlanId];
-      const rows = await query(`SELECT * FROM gp_notes ${filter}`, params);
-      return res.json({ result: rows });
+      const rows = await query(
+        `SELECT n.*, e.firstName, e.lastName FROM gp_notes n
+         LEFT JOIN entity e ON e.entityId = n.entityId
+         WHERE ${filter} ORDER BY n.created DESC`,
+        params
+      );
+      const decrypted = decryptRows(rows);
+      return res.json({ result: decrypted });
     }
     if (action === 'ADD' || action === 'SAVE') {
       await query(

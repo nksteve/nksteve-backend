@@ -61,4 +61,37 @@ router.post('/updateActionFeedback', async (req, res) => {
   }
 });
 
+/* ─── Activity Log for a goal or action ───────────────────────────────────── */
+router.post('/getEntityActivity', auth, async (req, res) => {
+  const { growthPlanId, goalTagId, actionTagId, weekEndDate } = req.body;
+  const entityId = req.user.entityId;
+  try {
+    const rows = await callProc(
+      'call getEntityDisplayActivity(?,?,?,?,?,?)',
+      [entityId, growthPlanId || null, goalTagId || null, actionTagId || null, weekEndDate || null, null]
+    );
+    const raw = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
+
+    // Group by calendarGroup (same as Vembu formatResponseCalendar)
+    const grouped = {};
+    raw.forEach(row => {
+      const key = row.calendarGroup;
+      if (!grouped[key]) {
+        grouped[key] = {
+          calendarGroup: key,
+          calendarDisplay: row.calendarDisplay,
+          calendarView: row.calendarView,
+          auditList: [],
+        };
+      }
+      grouped[key].auditList.push(row);
+    });
+    const calendar = Object.values(grouped);
+    res.json({ header: { errorCode: 0 }, calendar });
+  } catch (e) {
+    console.error('getEntityActivity error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;
