@@ -119,7 +119,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
 
       // 3. Get goals from cgp_view — has live percentAchieved (0-1 decimal, multiply *100 for display)
       const goalRows = await query(
-        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate, goalFeedbackStatus
+        `SELECT DISTINCT goalTagId, goalName, goalPercentAchieved, milestoneDate AS goalMilestoneDate, goalFeedbackStatus, publishToMaster, goalProgressType
          FROM cgp_view
          WHERE growthPlanId = ? AND goalTagId IS NOT NULL AND actionTagId IS NULL
          ORDER BY goalTagId`,
@@ -135,6 +135,8 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         goalPercentAchieved: (r.goalPercentAchieved || 0) * 100,
         goalMilestoneDate:     r.goalMilestoneDate,
         goalFeedbackStatus:    r.goalFeedbackStatus,
+        publishToMaster:       r.publishToMaster != null ? r.publishToMaster : 0,
+        goalProgressType:      r.goalProgressType || 0,
         goalStatus:            'Open',
       }));
 
@@ -146,7 +148,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
         const actionRows = await query(
           `SELECT actionTagId, goalTagId, milestoneDate AS endDate,
                   actionGoalMilestoneDate, actionFeedbackStatus,
-                  actionGoalPercentAchieve, actionName
+                  actionGoalPercentAchieve, actionName, publishToMaster
            FROM cgp_view
            WHERE growthPlanId = ? AND actionTagId IS NOT NULL AND goalTagId IN (${placeholders})
            ORDER BY actionTagId`,
@@ -178,6 +180,7 @@ router.post('/growth-plan-details', auth, async (req, res) => {
           actionGoalPercentAchieve: (r.actionGoalPercentAchieve || 0) * 100,
           endDate:                 r.actionGoalMilestoneDate || null,
           actionFeedbackStatus:    r.actionFeedbackStatus,
+          publishToMaster:         r.publishToMaster != null ? r.publishToMaster : 0,
           notesCount:              notesCountMap[r.actionTagId] || 0,
           docsCount:               docsCountMap[r.actionTagId] || 0,
         }));

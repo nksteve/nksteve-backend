@@ -40,12 +40,29 @@ router.post('/updateCustomizedTag', auth, async (req, res) => {
 router.post('/goalActionCreate', auth, async (req, res) => {
   const g = req.body;
   try {
-    const rows = await callProc('call goalActionCreate(?,?,?,?,?,?,?)', [
-      g.action, g.goalId || null, g.entityId, g.name || null,
-      g.categoryId || null, g.companyId || null, g.teamId || null
-    ]);
-    res.json({ result: rows });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    // Vembu uses updateCustomizedTag with scope='G' to add a goal
+    // teamId should be the childPlanId (= growthPlanId as string for owned plans)
+    const teamId = g.teamId || String(g.growthPlanId || '');
+    const rows = await callProc(
+      'call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?)',
+      [
+        'UPDATE',                    // _action
+        g.entityId,                  // _entityId
+        g.growthPlanId || null,      // _growthPlanId
+        g.categoryId   || null,      // _categoryId
+        'G',                         // _scope
+        g.goalName || g.name || null,// _name
+        null,                        // _goalTagId
+        null,                        // _experienceId
+        null,                        // _feedbackId
+        teamId,                      // _teamId
+      ]
+    );
+    res.json({ header: { errorCode: 0 }, result: rows });
+  } catch (e) {
+    console.error('goalActionCreate error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 router.post('/getPicklist', async (req, res) => {
