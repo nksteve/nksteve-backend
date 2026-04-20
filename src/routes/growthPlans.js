@@ -78,8 +78,8 @@ router.post('/growth-plan-details', auth, async (req, res) => {
       let computedPercent = gp.percentAchieved || 0;
       try {
         const spRows = await callProc(
-          'call getCommunityGrowthPlanDetail(?,?,?,?,?,?)',
-          ['AllPlans', entityId, null, 1, null, null]
+          'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
+          ['AllPlans', entityId, null, 1, null, null, companyId]
         );
         const spPlan = (spRows[0] || []).find(r => r.growthPlanId == growthPlanId);
         if (spPlan && spPlan.growthPlanPercentAchieved != null) {
@@ -235,10 +235,10 @@ router.post('/getMyPlans', auth, async (req, res) => {
   };
   const _statusId = statusIdMap[_action] || 1;
   try {
-    // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _teamId)
+    // SP: getCommunityGrowthPlanDetail(_action, _entityId, _gpId, _statusId, _search, _childPlanId, _companyId)
     const rows = await callProc(
-      'call getCommunityGrowthPlanDetail(?,?,?,?,?,?)',
-      [_action, eid, null, _statusId, null, null]
+      'call getCommunityGrowthPlanDetail(?,?,?,?,?,?,?)',
+      [_action, eid, null, _statusId, null, null, cid]
     );
     const flat = rows[0] || [];
     const raw  = decryptRows(flat);
