@@ -54,7 +54,9 @@ router.post('/getMeetingsDetailByGrowthPlanId', auth, async (req, res) => {
   const { growthPlanId, entityId, companyId } = req.body;
   const eid = entityId || req.user?.entityId;
   try {
-    const rows = await callProc('call getMeetingsDetailByGrowthPlanId(?,?,?)', [growthPlanId, eid, companyId || null]);
+    // SP: getMeetingsDetailByGrowthPlanId(_scope, _entityId, _growthPlanId)
+    // _scope = growthPlanId (used as identifier), _entityId = entityId, _growthPlanId = growthPlanId
+    const rows = await callProc('call getMeetingsDetailByGrowthPlanId(?,?,?)', [growthPlanId, eid, growthPlanId]);
     const result = Array.isArray(rows[0]) ? rows[0] : (Array.isArray(rows) ? rows : []);
     res.json({ meetings: result });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -62,7 +64,11 @@ router.post('/getMeetingsDetailByGrowthPlanId', auth, async (req, res) => {
 
 // SP: updateMeeting(_action, _meetingId, _sessionId, _sessionToken, _archiveUrl, _statusId, _topic, _title, _durationMinutes, _scheduledMinutes, _scheduledUTC, _joinGC, _joinMM, _rescheduledEntityId, _growthPlanId)
 router.post('/updateMeeting', auth, async (req, res) => {
-  const m = req.body;
+  // Support both flat body and { action, meeting: {...} } nested form
+  const body = req.body;
+  const nested = body.meeting || {};
+  const m = { ...nested, ...body };
+  delete m.meeting; // avoid confusion
   try {
     const rows = await callProc('call updateMeeting(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [
       m.action || 'UPDATE',
@@ -99,9 +105,21 @@ router.post('/getTeamPlanMeetings', auth, async (req, res) => {
 router.post('/updateFeedback', auth, async (req, res) => {
   const f = req.body;
   try {
+    // SP: updateSessionFeedback(_blockreturn, _action, _feedbackId, _actorId, _entityId, _meetingId,
+    //   _tagId, _howDidItGo, _improvementComment, _privateNotes, _publicNotes, _ratings)
     const rows = await callProc('call updateSessionFeedback(?,?,?,?,?,?,?,?,?,?,?,?)', [
-      f.action, f.meetingId, f.entityId, f.rating || null, f.comments || null,
-      f.q1 || null, f.q2 || null, f.q3 || null, f.q4 || null, f.q5 || null, f.companyId || null, f.teamId || null
+      0,                                // _blockreturn (always 0)
+      f.action || 'INSERT',             // _action
+      f.feedbackId || null,             // _feedbackId
+      f.actorId || f.entityId || null,  // _actorId
+      f.entityId || null,               // _entityId
+      f.meetingId || null,              // _meetingId
+      f.tagId || null,                  // _tagId
+      f.howDidItGo || f.rating || null, // _howDidItGo
+      f.improvementComment || f.comments || null, // _improvementComment
+      f.privateNotes || null,           // _privateNotes
+      f.publicNotes || null,            // _publicNotes
+      f.ratings || f.rating || null,    // _ratings
     ]);
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }

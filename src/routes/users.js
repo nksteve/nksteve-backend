@@ -69,7 +69,7 @@ router.post('/updateEntityInterestsTag', auth, async (req, res) => {
       i.action || 'ADD',
       i.entityId,
       i.categoryId || null,
-      i.tagId || null,
+      i.tagId || i.tag || null,    // frontend may send 'tag' string or 'tagId' int
       i.summary || null,
       i.whatIWant || null,
       i.mission || null,
@@ -95,9 +95,13 @@ router.post('/updateEntityInterestsTag', auth, async (req, res) => {
 router.post('/updateEntityExperience', auth, async (req, res) => {
   const e2 = req.body;
   try {
+    // SP: updateEntityExperience(_action, _experienceId, _entityId, _position(title), _company, _startDate, _endDate, _summary)
+    // Note: frontend may send 'company' (not 'companyName') — accept both
+    const companyVal = e2.companyName || e2.company || null;
     const rows = await callProc('call updateEntityExperience(?,?,?,?,?,?,?,?)', [
-      e2.action, e2.entityId, e2.experienceId || null, e2.companyName || null,
-      e2.title || null, e2.startDate || null, e2.endDate || null, e2.description || null
+      e2.action, e2.experienceId || null, e2.entityId,
+      e2.title || null, companyVal,
+      e2.startDate || null, e2.endDate || null, e2.description || e2.summary || null
     ]);
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }

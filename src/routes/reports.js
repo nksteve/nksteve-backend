@@ -53,11 +53,16 @@ router.post('/analyticsData', auth, async (req, res) => {
 });
 
 router.post('/analyticsConfig', auth, async (req, res) => {
-  const { action, companyId, entityId, configId, startYear, endYear, enabled, charterId } = req.body;
+  const { action, companyId, entityId, configId, account, category, parentConfigId, isDeleted, startYear, endYear, enabled, charterId } = req.body;
   try {
+    // SP: REPORT_config(_action, _configId, _account, _category, _parentConfigId, _isDeleted, NULL, NULL)
     const rows = await callProc('call REPORT_config(?,?,?,?,?,?,NULL,NULL)', [
-      action, companyId || null, entityId || null, configId || null,
-      startYear || null, endYear || null
+      action || 'GET',
+      configId || null,
+      account || null,
+      category || null,
+      parentConfigId || null,
+      isDeleted !== undefined ? isDeleted : null,
     ]);
     res.json({ data: rows[0] || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
