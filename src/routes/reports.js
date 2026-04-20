@@ -64,9 +64,24 @@ router.post('/analyticsConfig', auth, async (req, res) => {
 });
 
 router.post('/analyticsLogs', auth, async (req, res) => {
-  const { companyId, entityId, startDate, endDate } = req.body;
+  const { action, companyId, entityId, fileId, periodId, errorFrom, errorType, account, category, logDescription, logErrorDescription } = req.body;
   try {
-    const rows = await callProc('call REPORT_logs(?,?,?,?)', [companyId || null, entityId || null, startDate || null, endDate || null]);
+    // SP: REPORT_logs(_action, NULL, _runId, _companyId, _fileId, _periodId, _errorFrom, _errorType, _account, _category, _logDescription, _logErrorDescription, NULL, NULL, NULL)
+    const rows = await callProc(
+      'CALL REPORT_logs(?,NULL,?,?,?,?,?,?,?,?,?,?,NULL,NULL,NULL)',
+      [
+        action || 'GET',
+        companyId || null,
+        fileId || null,
+        periodId || null,
+        errorFrom || null,
+        errorType || null,
+        account || null,
+        category || null,
+        logDescription || null,
+        logErrorDescription || null,
+      ]
+    );
     res.json({ data: rows[0] || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

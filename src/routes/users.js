@@ -106,15 +106,39 @@ router.post('/updateEntityExperience', auth, async (req, res) => {
 router.post('/updateEntityPersonal', auth, async (req, res) => {
   const p = req.body;
   try {
-    const rows = await callProc('call updateEntityPersonal(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,null)', [
-      p.entityId, p.companyId || null, p.firstName || null, p.lastName || null,
-      p.title || null, p.department || null, p.phone || null, p.location || null,
-      p.linkedIn || null, p.twitter || null, p.facebook || null, p.instagram || null,
-      p.website || null, p.bio || null, p.imageUri || null, p.timezone || null,
-      p.language || null, p.currency || null, p.dateFormat || null, p.timeFormat || null,
-      p.emailNotifications || null, p.smsNotifications || null, p.email || null,
-      p.statusId || null, p.roleId || null, p.teamId || null
-    ]);
+    // SP: updateEntityPersonal(_action,_entityId,_actorId,_firstName,_lastName,_email,_phone,_landline,
+    //   _title,_companyId,_departmentId,_city,_countryId,_stateId,_timeZoneId,_dob,_genderId,_alias,
+    //   _imageUri,_tokenId,_isTermsSigned,_statusId,_feel_myHeart,_feel_myMindset,_feel_mySkillset,_feel_myWellbeing,_securityToken,_password)
+    const rows = await callProc(
+      'call updateEntityPersonal(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,null,null,null,null,?,?)',
+      [
+        p.action || 'UPDATE',         // _action
+        p.entityId,                   // _entityId
+        p.actorId || null,            // _actorId
+        p.firstName || null,          // _firstName
+        p.lastName || null,           // _lastName
+        p.email || null,              // _email
+        p.phone || null,              // _phone
+        p.landline || null,           // _landline
+        p.title || null,              // _title
+        p.companyId || null,          // _companyId
+        p.departmentId || null,       // _departmentId
+        p.city || null,               // _city
+        p.countryId || null,          // _countryId
+        p.stateId || null,            // _stateId
+        p.timeZoneId || null,         // _timeZoneId
+        p.dob || null,                // _dob
+        p.genderId || null,           // _genderId
+        p.alias || null,              // _alias
+        p.imageUri || null,           // _imageUri
+        p.tokenId || null,            // _tokenId
+        p.isTermsSigned || null,      // _isTermsSigned
+        p.statusId || null,           // _statusId
+        // _feel_myHeart, _feel_myMindset, _feel_mySkillset, _feel_myWellbeing = null
+        p.securityToken || null,      // _securityToken
+        p.password || null,           // _password
+      ]
+    );
     res.json({ result: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

@@ -25,12 +25,13 @@ router.get('/goals', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// SP: updateCustomizedTag(_action, _entityId, _growthPlanId, _categoryId, _scope, _name, _goalTagId, _experienceId, _feedbackId, _teamId)
+// SP: updateCustomizedTag(_action, _companyId, _entityId, _growthPlanId, _categoryId, _scope, _name, _goalTagId, _experienceId, _feedbackId, _teamId)
 router.post('/updateCustomizedTag', auth, async (req, res) => {
   const t = req.body;
   try {
-    const rows = await callProc('call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?)', [
+    const rows = await callProc('call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?,?)', [
       t.action,
+      t.companyId || null,
       t.entityId || null,
       t.growthPlanId || null,
       t.categoryId || null,
@@ -52,9 +53,10 @@ router.post('/goalActionCreate', auth, async (req, res) => {
     // teamId should be the childPlanId (= growthPlanId as string for owned plans)
     const teamId = g.teamId || String(g.growthPlanId || '');
     const rows = await callProc(
-      'call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?)',
+      'call updateCustomizedTag(?,?,?,?,?,?,?,?,?,?,?)',
       [
         'UPDATE',                    // _action
+        g.companyId || null,         // _companyId
         g.entityId,                  // _entityId
         g.growthPlanId || null,      // _growthPlanId
         g.categoryId   || null,      // _categoryId
