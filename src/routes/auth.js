@@ -49,6 +49,7 @@ router.post('/login', async (req, res) => {
         email,
         firstName: entity.firstName,
         lastName: entity.lastName,
+        companyName: entity.companyName || '',
         securityToken: entity.securityToken || loginResult.tokenId
       }
     });
